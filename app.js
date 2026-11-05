@@ -203,7 +203,7 @@
   }
 
   /* ---------- detail ---------- */
-  function editorHtml(it) {
+  function editorHtml(it, extra = '') {
     const info = spokenInfo(it);
     const done = isDone(it);
     return (
@@ -215,7 +215,7 @@
       `<span class="edit-actions">` +
       `<button type="button" class="chip" data-act="item-reset"${hasManual(it) ? '' : ' hidden'}>戻す</button>` +
       `<button type="button" class="chip${done ? ' on' : ''}" data-act="item-done" aria-pressed="${done}">${done ? '確定済み' : '確定'}</button>` +
-      `</span></div></div>`
+      `</span></div>${extra}</div>`
     );
   }
 
@@ -251,7 +251,11 @@
       `<h2 class="hero-pkg">${esc(p.pkg)}</h2>` +
       `<p class="hero-mean">${esc(p.mean)}</p>` +
       `<p class="kata">${esc(p.kata)}</p>` +
-      editorHtml(pkgItem) +
+      editorHtml(
+        pkgItem,
+        `<button type="button" class="btn apply" data-act="apply-examples">例文1〜3に適用</button>` +
+          `<p class="apply-hint">上の綴りを、3つの例文の同じ語句に反映します（例文側は手動編集の扱いになります）。</p>`
+      ) +
       `<div class="actions">` +
       playButtons(pkgItem, '通常で聞く', 'つなげ読みで聞く', { plain: 'btn', linked: 'btn primary' }) +
       `<a class="btn" href="${esc(p.yg)}" target="_blank" rel="noopener noreferrer">YouGlishで発音を確認</a>` +
@@ -270,6 +274,76 @@
   function refreshEdit(editEl, it) {
     editEl.querySelector('.edit-src').textContent = srcLabel(spokenInfo(it));
     editEl.querySelector('[data-act="item-reset"]').hidden = !hasManual(it);
+  }
+
+  /* ---------- apply the package spelling to examples 1-3 ---------- */
+  const trimPunct = (s) => s.replace(/^[\s,?!.]+|[\s,?!.]+$/g, '');
+  const stripTail = (t) => t.replace(/[,?!.]+$/, '');
+
+  // When the whole package phrase is not found in an example (e.g. "I was going to ~, but ~"),
+  // use only the part that was actually changed (widened to at least 2 words for safety).
+  function diffSpan(plain, edited) {
+    const A = trimPunct(plain).split(/\s+/);
+    const B = trimPunct(edited).split(/\s+/);
+    const same = (x, y) => stripTail(x).toLowerCase() === stripTail(y).toLowerCase();
+    let i = 0;
+    while (i < A.length && i < B.length && same(A[i], B[i])) i++;
+    let ja = A.length;
+    let jb = B.length;
+    while (ja > i && jb > i && same(A[ja - 1], B[jb - 1])) {
+      ja--;
+      jb--;
+    }
+    if (ja - i < 2) {
+      if (i > 0) i--;
+      else if (ja < A.length) {
+        ja++;
+        jb++;
+      }
+    }
+    const oldT = A.slice(i, ja).map(stripTail).join(' ');
+    const newT = B.slice(i, jb).map(stripTail).join(' ');
+    return oldT && newT ? { old: oldT, new: newT } : null;
+  }
+
+  function applyToExamples(p) {
+    const pkgIt = ITEM_BY_KEY[itemKey(p, 'pkg', 0)];
+    const oldPhrase = trimPunct(pkgIt.plain);
+    const newPhrase = trimPunct(spokenInfo(pkgIt).text);
+    if (!newPhrase || oldPhrase.toLowerCase() === newPhrase.toLowerCase()) {
+      toast('パッケージの綴りが元の英文と同じです。綴りを直してから押してください');
+      return;
+    }
+    const span = diffSpan(oldPhrase, newPhrase);
+    const rules = getRules();
+    const plan = p.ex.map((_, i) => {
+      const it = ITEM_BY_KEY[itemKey(p, 'ex', i)];
+      let r = applyPhraseEdit(it.plain, oldPhrase, newPhrase, rules);
+      if (!r.count && span) r = applyPhraseEdit(it.plain, span.old, span.new, rules);
+      return { it, i, r };
+    });
+    const targets = plan.filter((x) => x.r.count);
+    const skipped = plan.filter((x) => !x.r.count).map((x) => '例文' + (x.i + 1));
+    if (!targets.length) {
+      toast('例文の中に、対応する語句が見つかりませんでした');
+      return;
+    }
+    if (targets.some((x) => hasManual(x.it)) && !confirm('手動で編集した例文があります。上書きして適用しますか？')) return;
+
+    targets.forEach(({ it, r }) => {
+      setItemText(it, r.text);
+      const editEl = detailView.querySelector(`.edit[data-key="${it.key}"]`);
+      if (editEl) {
+        const field = editEl.querySelector('.edit-input');
+        field.value = spokenInfo(it).text;
+        autoGrow(field);
+        refreshEdit(editEl, it);
+      }
+    });
+    toast(
+      '例文' + targets.map((x) => x.i + 1).join('・') + 'に適用しました' +
+        (skipped.length ? `（${skipped.join('・')}は語句が見つからず未適用）` : '')
+    );
   }
 
   const detailView = $('detailView');
@@ -324,7 +398,9 @@
     const editEl = btn.closest('.edit');
     if (!editEl) return;
     const it = ITEM_BY_KEY[editEl.dataset.key];
-    if (btn.dataset.act === 'item-done') {
+    if (btn.dataset.act === 'apply-examples') {
+      applyToExamples(it.p);
+    } else if (btn.dataset.act === 'item-done') {
       toggleItemDone(it);
       const done = isDone(it);
       btn.classList.toggle('on', done);

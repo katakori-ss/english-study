@@ -84,11 +84,15 @@ function itemKey(pkg, kind, exIndex) {
   return kind === 'pkg' ? 'p' + pkg.n : 'p' + pkg.n + 'e' + (exIndex + 1);
 }
 
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const _reCache = new Map();
 function _regexFor(phrase) {
   let re = _reCache.get(phrase);
   if (!re) {
-    re = new RegExp('\\b' + phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
+    re = new RegExp('\\b' + escapeRe(phrase) + '\\b', 'gi');
     _reCache.set(phrase, re);
   }
   re.lastIndex = 0;
@@ -142,4 +146,21 @@ function applyRules(text, rules) {
   }
   out += text.slice(pos);
   return { text: out, hits: chosen.map((c) => ({ id: c.r.id, start: c.start, end: c.end })) };
+}
+
+// text の中の oldPhrase を newPhrase に置き換え、置き換えた箇所以外には rules を適用する。
+// 置き換えた箇所は規則の対象外（二重に変換しない）。count は置き換えた回数。
+function applyPhraseEdit(text, oldPhrase, newPhrase, rules) {
+  const re = new RegExp('\\b' + escapeRe(oldPhrase) + '\\b', 'gi');
+  let out = '';
+  let pos = 0;
+  let count = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    out += applyRules(text.slice(pos, m.index), rules).text + caseLike(m[0], newPhrase);
+    pos = m.index + m[0].length;
+    count++;
+  }
+  out += applyRules(text.slice(pos), rules).text;
+  return { text: out, count };
 }
