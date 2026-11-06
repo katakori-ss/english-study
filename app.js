@@ -42,6 +42,7 @@
     if (s && typeof s === 'object') {
       state = { rules: s.rules || {}, items: s.items || {} };
       if (s.voice && s.voice.uri) state.voice = s.voice;   // { uri, name }
+      if (s.voiceAll) state.voiceAll = true;               // show the novelty voices too
     }
   } catch (e) {
     /* storage unavailable or broken: start empty */
@@ -135,12 +136,18 @@
   const langOf = (v) => String(v.lang || '').replace('_', '-');
   const isUS = (v) => /^en-US$/i.test(langOf(v));
   const voiceKey = (v) => v.voiceURI || v.name;
+  // iOS's built-in novelty / sound-effect voices (hidden by default). Names are from general knowledge of iOS, not verified here.
+  const NOVELTY_VOICES = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox)(\s|\(|$)/i;
+  // On a Japanese-language iPhone some of these come back with Japanese names (e.g. ベル, 震え).
+  // A voice listed as English but named with Japanese characters is treated as one of them.
+  const JAPANESE_NAME = /[\u3040-\u30ff\u3400-\u9fff]/;
+  const isNovelty = (v) => NOVELTY_VOICES.test(v.name) || JAPANESE_NAME.test(v.name);
   let voiceMode = 'auto'; // 'manual' | 'auto' | 'missing' (saved voice no longer offered)
 
   const englishVoices = () => (synth ? synth.getVoices().filter((v) => /^en/i.test(langOf(v))) : []);
 
   function autoVoice() {
-    const list = englishVoices().filter(isUS);
+    const list = englishVoices().filter((v) => isUS(v) && !isNovelty(v));
     list.sort((a, b) => autoRank(a) - autoRank(b));
     return list[0] || null;
   }
@@ -164,9 +171,12 @@
       note.textContent = 'このブラウザは読み上げに対応していません。';
       return;
     }
-    const list = englishVoices().sort(
-      (a, b) => Number(isUS(b)) - Number(isUS(a)) || tier(a) - tier(b) || a.name.localeCompare(b.name)
-    );
+    const all = englishVoices();
+    const list = all
+      .filter((v) => state.voiceAll || !isNovelty(v) || (state.voice && voiceKey(v) === state.voice.uri))
+      .sort((a, b) => Number(isUS(b)) - Number(isUS(a)) || tier(a) - tier(b) || a.name.localeCompare(b.name));
+    const hidden = all.length - list.length;
+    $('voiceAll').checked = !!state.voiceAll;
     const auto = autoVoice();
     sel.innerHTML =
       `<option value="">自動（${auto ? esc(auto.name) : '端末の標準'}）</option>` +
@@ -177,6 +187,7 @@
       list.length === 0
         ? '声の一覧を取得できていません。ページを再読み込みしてください。'
         : `Safariが使える英語の声: ${list.length}件` +
+          (hidden > 0 ? `（変わった声 ${hidden}件は非表示）` : '') +
           (voiceMode === 'missing' ? `。選んでいた声（${state.voice.name}）が見つからないため、自動で選んでいます。` : '');
   }
 
@@ -564,6 +575,13 @@
   });
 
   rulesView.addEventListener('change', (e) => {
+    if (e.target.id === 'voiceAll') {
+      if (e.target.checked) state.voiceAll = true;
+      else delete state.voiceAll;
+      saveState();
+      renderVoiceSettings();
+      return;
+    }
     if (e.target.id !== 'voiceSelect') return;
     const key = e.target.value;
     if (!key) delete state.voice;
@@ -594,8 +612,10 @@
     if (act === 'reset-all') {
       if (!confirm('規則の編集・文ごとの編集・確定の印を、すべて初期状態に戻します。よろしいですか？')) return;
       const keepVoice = state.voice;
+      const keepAll = state.voiceAll;
       state = { rules: {}, items: {} };
       if (keepVoice) state.voice = keepVoice;
+      if (keepAll) state.voiceAll = true;
       saveState();
       invalidateRules();
       renderRules();
