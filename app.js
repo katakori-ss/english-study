@@ -125,7 +125,11 @@
   let voice = null;
   let playingBtn = null;
 
-  const voiceRank = (v) => (/premium/i.test(v.name) ? 0 : /enhanced/i.test(v.name) ? 1 : 2);
+  // Preferred voice name (first match wins). Set to null to use only the Premium > Enhanced > others order.
+  const PREFERRED_VOICE = /^Samantha/i;
+  const voiceRank = (v) =>
+    (PREFERRED_VOICE && PREFERRED_VOICE.test(v.name) ? 0 : 3) +
+    (/premium/i.test(v.name) ? 0 : /enhanced/i.test(v.name) ? 1 : 2);
 
   function loadVoice() {
     const info = $('voiceInfo');
