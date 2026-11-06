@@ -8,6 +8,8 @@
 //
 // status: 'confirmed' = 耳で確認済み / 'candidate' = 案（未確認）。アプリ内で「確定」にもできる。
 
+const SPEAK_VERSION = '2026-11-06.2';  // app.js・index.html と同じ版でなければ、画面に警告が出る
+
 const SPEAK_RULES = [
   // ---- 耳で確認済み ----
   { id: 'have-to', phrase: 'have to', spelled: 'hafta', status: 'confirmed', kata: 'ハフタ', note: '本人が聞いて「ハフタになる」と確認。' },

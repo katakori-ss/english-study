@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
+<meta name="app-version" content="2026-11-06.2">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#1F5EFF">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -167,6 +168,8 @@
     border: 1.5px solid var(--rule); border-radius: 8px;
   }
   .voice-preview { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+  .check { display: flex; align-items: center; gap: 8px; min-height: 44px; margin-top: 6px; font-size: .85rem; cursor: pointer; }
+  .check input { width: 22px; height: 22px; accent-color: var(--accent); }
   .inline-link { color: var(--accent); text-decoration: underline; margin-left: 6px; }
   .tools { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px max(16px, env(safe-area-inset-left)) 0; }
   .rules { list-style: none; margin: 14px 0 0; padding: 0; background: var(--surface); border-block: 1px solid var(--rule); }
@@ -250,6 +253,7 @@
   <ol id="list" class="list"></ol>
   <p id="progress" class="foot"></p>
   <p id="voiceInfo" class="foot"></p>
+  <p id="version" class="foot"></p>
 </main>
 
 <main id="detailView" class="wrap" hidden></main>
@@ -263,6 +267,7 @@
       <button type="button" class="btn" data-act="voice-preview" data-mode="linked">つなげで試聴</button>
       <button type="button" class="btn" data-act="voice-preview" data-mode="plain">通常で試聴</button>
     </div>
+    <label class="check"><input type="checkbox" id="voiceAll"> 変わった声（効果音系）も表示する</label>
     <p id="voiceNote" class="apply-hint"></p>
   </section>
   <div class="tools">

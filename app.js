@@ -1,8 +1,47 @@
 (() => {
   'use strict';
 
+  const APP_VERSION = '2026-11-06.2';
+
+  // Show any startup/runtime error on screen (there is no console on an iPhone). Tap the red bar to dismiss.
+  function showFatal(msg) {
+    let bar = document.getElementById('fatalBar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'fatalBar';
+      bar.setAttribute('role', 'alert');
+      bar.style.cssText =
+        'position:fixed;left:0;right:0;top:0;z-index:100;padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;' +
+        'background:#B3261E;color:#fff;font:14px/1.45 -apple-system,sans-serif;white-space:pre-wrap;';
+      bar.addEventListener('click', () => bar.remove());
+      document.body.appendChild(bar);
+    }
+    bar.textContent += (bar.textContent ? '\n' : '') + msg;
+  }
+  window.addEventListener('error', (e) =>
+    showFatal('エラー: ' + e.message + '（' + String(e.filename || '').split('/').pop() + ':' + e.lineno + '）')
+  );
+  window.addEventListener('unhandledrejection', (e) =>
+    showFatal('エラー: ' + ((e.reason && e.reason.message) || e.reason))
+  );
+
+  // index.html / app.js / speak.js must be the same version (they are uploaded by hand).
+  {
+    const metaEl = document.querySelector('meta[name="app-version"]');
+    const htmlV = metaEl ? metaEl.content : 'なし';
+    const speakV = typeof SPEAK_VERSION === 'undefined' ? 'なし' : SPEAK_VERSION;
+    if (htmlV !== APP_VERSION || speakV !== APP_VERSION) {
+      showFatal(
+        `ファイルの版がそろっていません（index.html: ${htmlV} / app.js: ${APP_VERSION} / speak.js: ${speakV}）。` +
+          '全ファイルをアップロードし直して、再読み込みしてください。'
+      );
+    }
+  }
+
   const P = window.PACKAGES;
-  const $ = (id) => document.getElementById(id);
+  // A missing element (e.g. an older index.html) must not stop the whole app: use an inert stand-in.
+  const INERT = new Proxy(function () {}, { get: () => INERT, apply: () => INERT, set: () => true });
+  const $ = (id) => document.getElementById(id) || INERT;
   const esc = (s) =>
     String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const CIRC = ['①', '②', '③'];
@@ -741,10 +780,15 @@
 
   /* ---------- init ---------- */
   renderList();
-  refreshVoice();
-  if (synth) synth.onvoiceschanged = refreshVoice;
   window.addEventListener('hashchange', route);
   route();
+  $('version').textContent = '版: ' + APP_VERSION;
+  try {
+    refreshVoice();
+    if (synth) synth.onvoiceschanged = refreshVoice;
+  } catch (e) {
+    showFatal('声の初期化でエラー: ' + e.message);
+  }
 
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
