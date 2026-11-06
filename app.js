@@ -39,7 +39,10 @@
   let saveWarned = false;
   try {
     const s = JSON.parse(localStorage.getItem(LS_KEY));
-    if (s && typeof s === 'object') state = { rules: s.rules || {}, items: s.items || {} };
+    if (s && typeof s === 'object') {
+      state = { rules: s.rules || {}, items: s.items || {} };
+      if (s.voice && s.voice.uri) state.voice = s.voice;   // { uri, name }
+    }
   } catch (e) {
     /* storage unavailable or broken: start empty */
   }
@@ -125,24 +128,73 @@
   let voice = null;
   let playingBtn = null;
 
-  // Preferred voice name (first match wins). Set to null to use only the Premium > Enhanced > others order.
+  // Preferred voice name for the automatic choice (first match wins). null = only Premium > Enhanced > others.
   const PREFERRED_VOICE = /^Samantha/i;
-  const voiceRank = (v) =>
-    (PREFERRED_VOICE && PREFERRED_VOICE.test(v.name) ? 0 : 3) +
-    (/premium/i.test(v.name) ? 0 : /enhanced/i.test(v.name) ? 1 : 2);
+  const tier = (v) => (/premium/i.test(v.name) ? 0 : /enhanced/i.test(v.name) ? 1 : 2);
+  const autoRank = (v) => (PREFERRED_VOICE && PREFERRED_VOICE.test(v.name) ? 0 : 3) + tier(v);
+  const langOf = (v) => String(v.lang || '').replace('_', '-');
+  const isUS = (v) => /^en-US$/i.test(langOf(v));
+  const voiceKey = (v) => v.voiceURI || v.name;
+  let voiceMode = 'auto'; // 'manual' | 'auto' | 'missing' (saved voice no longer offered)
 
-  function loadVoice() {
+  const englishVoices = () => (synth ? synth.getVoices().filter((v) => /^en/i.test(langOf(v))) : []);
+
+  function autoVoice() {
+    const list = englishVoices().filter(isUS);
+    list.sort((a, b) => autoRank(a) - autoRank(b));
+    return list[0] || null;
+  }
+
+  function pickVoice() {
+    if (state.voice) {
+      const all = englishVoices();
+      const v = all.find((x) => voiceKey(x) === state.voice.uri) || all.find((x) => x.name === state.voice.name);
+      return v ? { voice: v, mode: 'manual' } : { voice: autoVoice(), mode: 'missing' };
+    }
+    return { voice: autoVoice(), mode: 'auto' };
+  }
+
+  function renderVoiceSettings() {
+    const sel = $('voiceSelect');
+    const note = $('voiceNote');
+    if (!sel) return;
+    if (!synth) {
+      sel.innerHTML = '';
+      sel.disabled = true;
+      note.textContent = 'このブラウザは読み上げに対応していません。';
+      return;
+    }
+    const list = englishVoices().sort(
+      (a, b) => Number(isUS(b)) - Number(isUS(a)) || tier(a) - tier(b) || a.name.localeCompare(b.name)
+    );
+    const auto = autoVoice();
+    sel.innerHTML =
+      `<option value="">自動（${auto ? esc(auto.name) : '端末の標準'}）</option>` +
+      list.map((v) => `<option value="${esc(voiceKey(v))}">${esc(v.name)} · ${esc(langOf(v))}</option>`).join('');
+    sel.disabled = list.length === 0;
+    sel.value = voiceMode === 'manual' && voice ? voiceKey(voice) : '';
+    note.textContent =
+      list.length === 0
+        ? '声の一覧を取得できていません。ページを再読み込みしてください。'
+        : `Safariが使える英語の声: ${list.length}件` +
+          (voiceMode === 'missing' ? `。選んでいた声（${state.voice.name}）が見つからないため、自動で選んでいます。` : '');
+  }
+
+  function refreshVoice() {
     const info = $('voiceInfo');
     if (!synth) {
       info.textContent = 'このブラウザは読み上げに対応していません。';
+      renderVoiceSettings();
       return;
     }
-    const list = synth.getVoices().filter((v) => /^en[-_]US$/i.test(v.lang));
-    list.sort((a, b) => voiceRank(a) - voiceRank(b));
-    voice = list[0] || null;
-    info.textContent = voice
-      ? '読み上げの声: ' + voice.name
-      : '読み上げの声: 端末の標準（英語（米国）の声が見つかりません）';
+    const r = pickVoice();
+    voice = r.voice;
+    voiceMode = r.mode;
+    const change = ' <a class="inline-link" href="#/rules">変更</a>';
+    info.innerHTML = voice
+      ? '読み上げの声: ' + esc(voice.name) + '（' + (r.mode === 'manual' ? '手動で選択' : '自動') + '）' + change
+      : '読み上げの声: 端末の標準（英語（米国）の声が見つかりません）' + change;
+    renderVoiceSettings();
   }
 
   function clearPlaying() {
@@ -165,7 +217,7 @@
     clearPlaying();
 
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'en-US';
+    u.lang = voice ? langOf(voice) : 'en-US';
     if (voice) u.voice = voice;
     u.onstart = () => {
       if (btn) {
@@ -424,6 +476,7 @@
 
   /* ---------- rules screen ---------- */
   function renderRules() {
+    renderVoiceSettings();
     const openIds = new Set(
       Array.from(document.querySelectorAll('#rulesList details[open]')).map((d) => d.dataset.id)
     );
@@ -510,10 +563,28 @@
     input.value = getRules().find((r) => r.id === id).spelled;
   });
 
+  rulesView.addEventListener('change', (e) => {
+    if (e.target.id !== 'voiceSelect') return;
+    const key = e.target.value;
+    if (!key) delete state.voice;
+    else {
+      const v = englishVoices().find((x) => voiceKey(x) === key);
+      if (v) state.voice = { uri: voiceKey(v), name: v.name };
+    }
+    saveState();
+    refreshVoice();
+  });
+
   rulesView.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
+
+    if (act === 'voice-preview') {
+      const it = ITEM_BY_KEY.p2e2;
+      speak(btn.dataset.mode === 'plain' ? it.plain : spokenInfo(it).text, btn);
+      return;
+    }
 
     if (act === 'play') {
       speak(spokenInfo(ITEM_BY_KEY[btn.dataset.key]).text, btn);
@@ -522,7 +593,9 @@
     if (act === 'export') return exportState();
     if (act === 'reset-all') {
       if (!confirm('規則の編集・文ごとの編集・確定の印を、すべて初期状態に戻します。よろしいですか？')) return;
+      const keepVoice = state.voice;
       state = { rules: {}, items: {} };
+      if (keepVoice) state.voice = keepVoice;
       saveState();
       invalidateRules();
       renderRules();
@@ -564,7 +637,11 @@
       if (typeof state.items[k].text === 'string') manual[k] = state.items[k].text;
       if (state.items[k].done) doneItems.push(k);
     });
-    return JSON.stringify({ exportedAt: new Date().toISOString(), rules, manual, doneItems }, null, 1);
+    return JSON.stringify(
+      { exportedAt: new Date().toISOString(), voice: state.voice ? state.voice.name : null, rules, manual, doneItems },
+      null,
+      1
+    );
   }
 
   async function exportState() {
@@ -594,6 +671,7 @@
 
   $('list').addEventListener('click', () => (listScroll = window.scrollY));
   $('toRules').addEventListener('click', () => (listScroll = window.scrollY));
+  $('voiceInfo').addEventListener('click', () => (listScroll = window.scrollY));
 
   function show(name) {
     VIEWS.forEach((v) => {
@@ -643,8 +721,8 @@
 
   /* ---------- init ---------- */
   renderList();
-  loadVoice();
-  if (synth) synth.onvoiceschanged = loadVoice;
+  refreshVoice();
+  if (synth) synth.onvoiceschanged = refreshVoice;
   window.addEventListener('hashchange', route);
   route();
 
